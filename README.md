@@ -3,7 +3,7 @@
 Este repositorio contiene:
 
 - **Backend** en Python con **FastAPI** y WebSocket para generar posiciones orbitales aproximadas del Sistema Solar en función del tiempo simulado.
-- **Frontend** en HTML + JavaScript (Three.js) para visualizar Sol, Luna y los ocho planetas en 3D.
+- **Frontend** en HTML + JavaScript (Three.js) para visualizar Sol, Luna y los ocho planetas en 3D sobre un fondo estrellado panorámico.
 
 ## Requisitos
 
@@ -42,6 +42,7 @@ Para detener ambos servicios, usa `Ctrl + C` en la terminal donde corre `run.sh`
 ## Funcionalidades
 
 - Todos los planetas del Sistema Solar visibles al mismo tiempo.
+- Fondo estrellado 3D con un mapa celeste panorámico.
 - Modo de tamaño **real** para respetar la diferencia física entre el Sol y los planetas.
 - Modo de tamaño **aumentado** para hacer visibles los cuerpos pequeños sin alterar la escala de las órbitas.
 - Velocidad del tiempo configurable desde la UI, incluyendo pausa, tiempo real (`1x`) y aceleración.
@@ -75,3 +76,4 @@ Y abre `http://127.0.0.1:5173/frontend/`.
 - Si cambias host o puerto del backend, actualiza esa URL en `frontend/main.js`.
 - El sistema solar base se inicializa con elementos orbitales aproximados de JPL y luego evoluciona mediante integración gravitatoria N-cuerpos.
 - La textura de Marte proviene del recurso oficial de NASA Science para modelos 3D. Las restantes texturas planetarias se almacenan en `frontend/textures/`.
+- El fondo estrellado usa `Tycho Star Map`, disponible en NASA Science 3D Resources.

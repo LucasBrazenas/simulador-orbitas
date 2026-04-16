@@ -5,6 +5,13 @@ const DISTANCE_SCALE = 1e9;
 const VISIBLE_RADIUS_MULTIPLIER = 40;
 const MIN_VISIBLE_RADIUS = 1.4;
 const TRAIL_MAX_POINTS = 1500;
+const STAR_BACKGROUND_PATH = "./textures/tycho-star-map.jpg";
+const STAR_BACKGROUND_MAX_WIDTH = 2048;
+const STAR_BACKGROUND_BRIGHTNESS = 0.24;
+const STAR_BACKGROUND_SATURATION = 0.14;
+const STAR_BACKGROUND_BLACK_LEVEL = 14;
+const STAR_BACKGROUND_MID_LEVEL = 34;
+const STAR_BACKGROUND_HIGH_LEVEL = 80;
 const STATUS_TIME_FORMATTER = new Intl.DateTimeFormat("es-AR", {
 	dateStyle: "medium",
 	timeStyle: "medium",
@@ -106,8 +113,113 @@ const BASE_BODY_CONFIG_BY_NAME = Object.fromEntries(
 );
 const customBodyConfigs = {};
 
+function getNoiseByte(x, y) {
+	let value = Math.imul(x + 1, 374761393) ^ Math.imul(y + 1, 668265263);
+	value = Math.imul(value ^ (value >>> 13), 1274126177);
+	return (value ^ (value >>> 16)) & 255;
+}
+
+function buildMutedStarBackgroundTexture(image) {
+	const sourceWidth = image.naturalWidth || image.width;
+	const sourceHeight = image.naturalHeight || image.height;
+	const targetWidth = Math.min(sourceWidth, STAR_BACKGROUND_MAX_WIDTH);
+	const targetHeight = Math.max(
+		1,
+		Math.round(sourceHeight * (targetWidth / sourceWidth)),
+	);
+	const canvas = document.createElement("canvas");
+	canvas.width = targetWidth;
+	canvas.height = targetHeight;
+
+	const context = canvas.getContext("2d", { willReadFrequently: true });
+	if (!context) {
+		return null;
+	}
+
+	context.drawImage(image, 0, 0, targetWidth, targetHeight);
+	const imageData = context.getImageData(0, 0, targetWidth, targetHeight);
+	const { data } = imageData;
+
+	for (let index = 0; index < data.length; index += 4) {
+		const pixelIndex = index / 4;
+		const x = pixelIndex % targetWidth;
+		const y = Math.floor(pixelIndex / targetWidth);
+		const red = data[index];
+		const green = data[index + 1];
+		const blue = data[index + 2];
+		const luminance = red * 0.2126 + green * 0.7152 + blue * 0.0722;
+
+		if (luminance < STAR_BACKGROUND_BLACK_LEVEL) {
+			data[index] = 0;
+			data[index + 1] = 0;
+			data[index + 2] = 0;
+			continue;
+		}
+
+		const noise = getNoiseByte(x, y);
+		const keepPixel =
+			luminance >= STAR_BACKGROUND_HIGH_LEVEL ||
+			(luminance >= STAR_BACKGROUND_MID_LEVEL && noise < 92) ||
+			noise < 24;
+
+		if (!keepPixel) {
+			data[index] = 0;
+			data[index + 1] = 0;
+			data[index + 2] = 0;
+			continue;
+		}
+
+		const grayscale = luminance;
+		const mutedRed =
+			(grayscale + (red - grayscale) * STAR_BACKGROUND_SATURATION) *
+			STAR_BACKGROUND_BRIGHTNESS;
+		const mutedGreen =
+			(grayscale + (green - grayscale) * STAR_BACKGROUND_SATURATION) *
+			STAR_BACKGROUND_BRIGHTNESS;
+		const mutedBlue =
+			(grayscale + (blue - grayscale) * STAR_BACKGROUND_SATURATION) *
+			STAR_BACKGROUND_BRIGHTNESS;
+
+		data[index] = Math.round(Math.min(255, mutedRed));
+		data[index + 1] = Math.round(Math.min(255, mutedGreen));
+		data[index + 2] = Math.round(Math.min(255, mutedBlue));
+	}
+
+	context.putImageData(imageData, 0, 0);
+
+	const texture = new THREE.CanvasTexture(canvas);
+	texture.mapping = THREE.EquirectangularReflectionMapping;
+	texture.colorSpace = THREE.SRGBColorSpace;
+	texture.needsUpdate = true;
+	return texture;
+}
+
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x02050b);
+const textureLoader = new THREE.TextureLoader();
+
+textureLoader.load(
+	STAR_BACKGROUND_PATH,
+	(texture) => {
+		const mutedTexture = buildMutedStarBackgroundTexture(texture.image);
+
+		if (mutedTexture) {
+			texture.dispose();
+			scene.background = mutedTexture;
+			return;
+		}
+
+		texture.mapping = THREE.EquirectangularReflectionMapping;
+		texture.colorSpace = THREE.SRGBColorSpace;
+		scene.background = texture;
+	},
+	undefined,
+	() => {
+		console.warn(
+			`No se pudo cargar el fondo estrellado desde ${STAR_BACKGROUND_PATH}`,
+		);
+	},
+);
 
 const camera = new THREE.PerspectiveCamera(
 	60,
@@ -143,7 +255,6 @@ const gridHelper = new THREE.GridHelper(10_000, 40, 0x283244, 0x111826);
 gridHelper.rotation.x = Math.PI / 2;
 scene.add(gridHelper);
 
-const textureLoader = new THREE.TextureLoader();
 const textures = Object.fromEntries(
 	BASE_BODY_CONFIGS.filter((config) => config.texturePath).map((config) => [
 		config.name,
