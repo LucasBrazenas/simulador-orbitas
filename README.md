@@ -20,12 +20,27 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+En Windows (CMD):
+
+```bat
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+```
+
 ## Ejecutar todo con un solo comando
 
-Se incluye el script `run.sh` para levantar backend y frontend al mismo tiempo.
+Se incluyen scripts para levantar backend y frontend al mismo tiempo:
+
+- `run.sh` para Linux/macOS
+- `run.bat` para Windows
 
 ```bash
 ./run.sh
+```
+
+```bat
+run.bat
 ```
 
 Esto inicia:
@@ -37,7 +52,10 @@ Luego abre en tu navegador:
 
 - `http://127.0.0.1:5173/frontend/`
 
-Para detener ambos servicios, usa `Ctrl + C` en la terminal donde corre `run.sh`.
+Para detener ambos servicios:
+
+- con `run.sh`, usa `Ctrl + C` en la terminal donde corre el script
+- con `run.bat`, cierra las dos ventanas que abre el script
 
 ## Funcionalidades
 
