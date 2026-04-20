@@ -63,6 +63,7 @@ Para detener ambos servicios:
 - Fondo estrellado 3D con un mapa celeste panorámico.
 - Modo de tamaño **real** para respetar la diferencia física entre el Sol y los planetas.
 - Modo de tamaño **aumentado** para hacer visibles los cuerpos pequeños sin alterar la escala de las órbitas.
+- Selección del método numérico antes de iniciar la simulación: **Euler** o **Velocity Verlet**.
 - Velocidad del tiempo configurable desde la UI, incluyendo pausa, tiempo real (`1x`) y aceleración.
 - Botón para resincronizar la simulación con el instante actual.
 - Seguimiento de cámara desde la UI sobre cualquier cuerpo.
@@ -93,5 +94,6 @@ Y abre `http://127.0.0.1:5173/frontend/`.
 - El frontend se conecta al WebSocket en `ws://127.0.0.1:8000/ws`.
 - Si cambias host o puerto del backend, actualiza esa URL en `frontend/main.js`.
 - El sistema solar base se inicializa con elementos orbitales aproximados de JPL y luego evoluciona mediante integración gravitatoria N-cuerpos.
+- Velocity Verlet es el método seleccionado por defecto por su estabilidad en órbitas; Euler queda disponible para comparar el comportamiento numérico.
 - La textura de Marte proviene del recurso oficial de NASA Science para modelos 3D. Las restantes texturas planetarias se almacenan en `frontend/textures/`.
 - El fondo estrellado usa `Tycho Star Map`, disponible en NASA Science 3D Resources.

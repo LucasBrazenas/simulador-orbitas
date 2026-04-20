@@ -12,7 +12,12 @@ from backend.orbits import (
     build_solar_system_bodies,
     utc_now,
 )
-from backend.physics import resolve_collisions, update_bodies
+from backend.physics import (
+    DEFAULT_INTEGRATION_METHOD,
+    normalize_integration_method,
+    resolve_collisions,
+    update_bodies,
+)
 
 FRAME_DELAY_SECONDS = 1 / 30
 MAX_TIME_SCALE = 31_536_000.0
@@ -72,6 +77,8 @@ def normalize_custom_name(name: str, existing_names: set[str]) -> str:
 class SimulationSession:
     def __init__(self):
         self.time_scale = DEFAULT_TIME_SCALE
+        self.integration_method = DEFAULT_INTEGRATION_METHOD
+        self.has_started = False
         self.simulation_time = utc_now()
         self.last_real_tick = time.monotonic()
         self.custom_specs: list[CustomBodySpec] = []
@@ -98,11 +105,14 @@ class SimulationSession:
         elapsed_real_seconds = now - self.last_real_tick
         self.last_real_tick = now
 
+        if not self.has_started:
+            return
+
         simulated_delta_seconds = elapsed_real_seconds * self.time_scale
         if simulated_delta_seconds == 0:
             return
 
-        update_bodies(self.bodies, simulated_delta_seconds)
+        update_bodies(self.bodies, simulated_delta_seconds, self.integration_method)
         self.simulation_time += timedelta(seconds=simulated_delta_seconds)
 
     def snapshot(self):
@@ -110,12 +120,24 @@ class SimulationSession:
             "type": "snapshot",
             "simulationTime": self.simulation_time.isoformat().replace("+00:00", "Z"),
             "timeScale": self.time_scale,
+            "integrationMethod": self.integration_method,
+            "isStarted": self.has_started,
             "bodies": [serialize_body(body) for body in self.bodies],
         }
+
+    def start(self, integration_method, time_scale):
+        self.integration_method = normalize_integration_method(integration_method)
+        self.time_scale = clamp_time_scale(float(time_scale))
+        self.has_started = True
+        self.last_real_tick = time.monotonic()
 
     def set_time_scale(self, time_scale):
         self.advance()
         self.time_scale = clamp_time_scale(float(time_scale))
+
+    def set_integration_method(self, integration_method):
+        self.advance()
+        self.integration_method = normalize_integration_method(integration_method)
 
     def sync_to_now(self):
         self.reset(moment=utc_now(), keep_custom=True)
@@ -179,9 +201,28 @@ async def receive_client_messages(websocket: WebSocket, session: SimulationSessi
         message_type = message.get("type")
 
         async with lock:
+            if message_type == "start_simulation":
+                try:
+                    session.start(
+                        message.get("integrationMethod", DEFAULT_INTEGRATION_METHOD),
+                        float(message.get("timeScale", DEFAULT_TIME_SCALE)),
+                    )
+                except (TypeError, ValueError):
+                    continue
+                continue
+
             if message_type == "set_time_scale":
                 try:
                     session.set_time_scale(float(message.get("value", DEFAULT_TIME_SCALE)))
+                except (TypeError, ValueError):
+                    continue
+                continue
+
+            if message_type == "set_integration_method":
+                try:
+                    session.set_integration_method(
+                        message.get("value", DEFAULT_INTEGRATION_METHOD)
+                    )
                 except (TypeError, ValueError):
                     continue
                 continue

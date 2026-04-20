@@ -2,6 +2,7 @@ import * as THREE from "https://esm.sh/three@0.160.0";
 import { OrbitControls } from "https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js";
 
 const DISTANCE_SCALE = 1e9;
+const DEFAULT_TIME_SCALE = 86_400;
 const VISIBLE_RADIUS_MULTIPLIER = 40;
 const MIN_VISIBLE_RADIUS = 1.4;
 const TRAIL_MAX_POINTS = 1500;
@@ -269,11 +270,20 @@ const followOptions = {};
 
 let followTargetName = "";
 let sizeMode = "visible";
+let socket = null;
 
+const integrationMethodSelect = document.getElementById("integration-method");
+const startSimulationButton = document.getElementById(
+	"start-simulation-button",
+);
+const connectionStatus = document.getElementById("connection-status");
 const followTargetSelect = document.getElementById("follow-target");
 const sizeModeSelect = document.getElementById("size-mode");
 const timeScaleInput = document.getElementById("time-scale-input");
 const timeScaleLabel = document.getElementById("time-scale-label");
+const integrationMethodLabel = document.getElementById(
+	"integration-method-label",
+);
 const simulationTimeLabel = document.getElementById("simulation-time-label");
 const syncNowButton = document.getElementById("sync-now-button");
 const customNameInput = document.getElementById("custom-name");
@@ -290,6 +300,11 @@ const addCustomBodyButton = document.getElementById("add-custom-body-button");
 const resetSystemButton = document.getElementById("reset-system-button");
 const customBodyStatus = document.getElementById("custom-body-status");
 const customBodyList = document.getElementById("custom-body-list");
+const backendActionControls = [
+	syncNowButton,
+	addCustomBodyButton,
+	resetSystemButton,
+];
 
 function getAllBodyConfigs() {
 	return [...BASE_BODY_CONFIGS, ...Object.values(customBodyConfigs)];
@@ -595,8 +610,36 @@ function formatTimeScale(timeScale) {
 	return `1 s real = ${(timeScale / 604_800).toLocaleString("es-AR")} semana(s) simuladas`;
 }
 
+function formatIntegrationMethod(integrationMethod) {
+	if (integrationMethod === "euler") {
+		return "Euler";
+	}
+
+	if (integrationMethod === "velocity_verlet") {
+		return "Velocity Verlet";
+	}
+
+	return "sin iniciar";
+}
+
+function getSelectedTimeScale() {
+	const parsedValue = Number(timeScaleInput.value);
+	return Number.isFinite(parsedValue) && parsedValue >= 0
+		? parsedValue
+		: DEFAULT_TIME_SCALE;
+}
+
+function setBackendActionsEnabled(enabled) {
+	backendActionControls.forEach((control) => {
+		control.disabled = !enabled;
+	});
+}
+
 function updateStatus(snapshot) {
 	timeScaleLabel.textContent = formatTimeScale(snapshot.timeScale);
+	integrationMethodLabel.textContent = `Método: ${formatIntegrationMethod(
+		snapshot.integrationMethod,
+	)}`;
 	simulationTimeLabel.textContent = `Tiempo simulado: ${STATUS_TIME_FORMATTER.format(
 		new Date(snapshot.simulationTime),
 	)}`;
@@ -607,7 +650,7 @@ function updateStatus(snapshot) {
 }
 
 function sendSocketMessage(message) {
-	if (socket.readyState !== WebSocket.OPEN) return;
+	if (!socket || socket.readyState !== WebSocket.OPEN) return;
 	socket.send(JSON.stringify(message));
 }
 
@@ -616,6 +659,7 @@ function commitTimeScale(value) {
 	if (!Number.isFinite(parsedValue) || parsedValue < 0) return;
 
 	timeScaleInput.value = String(parsedValue);
+	timeScaleLabel.textContent = formatTimeScale(parsedValue);
 	sendSocketMessage({ type: "set_time_scale", value: parsedValue });
 }
 
@@ -674,6 +718,87 @@ BASE_BODY_CONFIGS.forEach((config) => {
 	createBody(config);
 });
 applyBodyScales();
+setBackendActionsEnabled(false);
+timeScaleLabel.textContent = formatTimeScale(getSelectedTimeScale());
+
+function handleSocketMessage(event) {
+	const message = JSON.parse(event.data);
+	if (message.type !== "snapshot") return;
+
+	syncBodiesFromSnapshot(message.bodies);
+	updateCustomBodyList(message.bodies);
+	updateStatus(message);
+
+	const positionsByName = Object.fromEntries(
+		message.bodies.map((body) => [body.name, body.position]),
+	);
+
+	message.bodies.forEach((body) => {
+		const mesh = bodies[body.name];
+		if (!mesh) return;
+
+		if (body.name === "Luna" && positionsByName.Tierra) {
+			mesh.position.copy(
+				getMoonVisiblePosition(body.position, positionsByName.Tierra),
+			);
+		} else {
+			mesh.position.copy(getBodyPosition(body.position));
+		}
+
+		if (trails[body.name]) {
+			updateTrail(body.name, mesh.position);
+		}
+	});
+}
+
+function startSimulation() {
+	if (
+		socket &&
+		(socket.readyState === WebSocket.CONNECTING ||
+			socket.readyState === WebSocket.OPEN)
+	) {
+		return;
+	}
+
+	clearAllTrails();
+	startSimulationButton.disabled = true;
+	startSimulationButton.textContent = "En curso";
+	integrationMethodSelect.disabled = true;
+	connectionStatus.textContent = "Conectando con el backend...";
+
+	socket = new WebSocket("ws://127.0.0.1:8000/ws");
+
+	socket.onopen = () => {
+		console.log("WebSocket conectado");
+		setBackendActionsEnabled(true);
+		connectionStatus.textContent = "Simulación en curso.";
+		sendSocketMessage({
+			type: "start_simulation",
+			integrationMethod: integrationMethodSelect.value,
+			timeScale: getSelectedTimeScale(),
+		});
+	};
+
+	socket.onmessage = handleSocketMessage;
+
+	socket.onerror = (error) => {
+		console.error("Error WebSocket:", error);
+		timeScaleLabel.textContent = "Sin conexión con el backend";
+		connectionStatus.textContent = "No se pudo conectar con el backend.";
+	};
+
+	socket.onclose = () => {
+		console.warn("WebSocket cerrado");
+		setBackendActionsEnabled(false);
+		startSimulationButton.disabled = false;
+		startSimulationButton.textContent = "Iniciar";
+		integrationMethodSelect.disabled = false;
+		timeScaleLabel.textContent = "Conexión cerrada";
+		connectionStatus.textContent = "Conexión cerrada.";
+	};
+}
+
+startSimulationButton.addEventListener("click", startSimulation);
 
 followTargetSelect.addEventListener("change", (event) => {
 	followTargetName = event.target.value;
@@ -721,53 +846,6 @@ resetSystemButton.addEventListener("click", () => {
 	sendSocketMessage({ type: "reset_system" });
 	setCustomBodyStatus("Sistema reiniciado sin cuerpos extra.", "success");
 });
-
-const socket = new WebSocket("ws://127.0.0.1:8000/ws");
-
-socket.onopen = () => {
-	console.log("WebSocket conectado");
-	commitTimeScale(timeScaleInput.value);
-};
-
-socket.onmessage = (event) => {
-	const message = JSON.parse(event.data);
-	if (message.type !== "snapshot") return;
-
-	syncBodiesFromSnapshot(message.bodies);
-	updateCustomBodyList(message.bodies);
-	updateStatus(message);
-
-	const positionsByName = Object.fromEntries(
-		message.bodies.map((body) => [body.name, body.position]),
-	);
-
-	message.bodies.forEach((body) => {
-		const mesh = bodies[body.name];
-		if (!mesh) return;
-
-		if (body.name === "Luna" && positionsByName.Tierra) {
-			mesh.position.copy(
-				getMoonVisiblePosition(body.position, positionsByName.Tierra),
-			);
-		} else {
-			mesh.position.copy(getBodyPosition(body.position));
-		}
-
-		if (trails[body.name]) {
-			updateTrail(body.name, mesh.position);
-		}
-	});
-};
-
-socket.onerror = (error) => {
-	console.error("Error WebSocket:", error);
-	timeScaleLabel.textContent = "Sin conexión con el backend";
-};
-
-socket.onclose = () => {
-	console.warn("WebSocket cerrado");
-	timeScaleLabel.textContent = "Conexión cerrada";
-};
 
 window.addEventListener("resize", () => {
 	camera.aspect = window.innerWidth / window.innerHeight;

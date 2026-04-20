@@ -4,6 +4,16 @@ import numpy as np
 G = 6.67430e-11
 MAX_INTEGRATION_STEP_SECONDS = 60 * 60
 MAX_SUBSTEPS = 240
+EULER_METHOD = "euler"
+VELOCITY_VERLET_METHOD = "velocity_verlet"
+DEFAULT_INTEGRATION_METHOD = VELOCITY_VERLET_METHOD
+
+INTEGRATION_METHOD_ALIASES = {
+    EULER_METHOD: EULER_METHOD,
+    "velocity-verlet": VELOCITY_VERLET_METHOD,
+    "verlet": VELOCITY_VERLET_METHOD,
+    VELOCITY_VERLET_METHOD: VELOCITY_VERLET_METHOD,
+}
 
 
 def compute_gravitational_force(body1, body2):
@@ -40,6 +50,32 @@ def compute_accelerations(bodies):
             accelerations[j] -= force / body2.mass
 
     return accelerations
+
+
+def normalize_integration_method(method):
+    normalized_method = str(method or DEFAULT_INTEGRATION_METHOD).strip().lower()
+
+    if normalized_method not in INTEGRATION_METHOD_ALIASES:
+        raise ValueError(f"Unsupported integration method: {method}")
+
+    return INTEGRATION_METHOD_ALIASES[normalized_method]
+
+
+def get_integrator(method):
+    normalized_method = normalize_integration_method(method)
+
+    if normalized_method == EULER_METHOD:
+        return integrate_euler
+
+    return integrate_velocity_verlet
+
+
+def integrate_euler(bodies, dt):
+    accelerations = compute_accelerations(bodies)
+
+    for body, acceleration in zip(bodies, accelerations):
+        body.position += body.velocity * dt
+        body.velocity += acceleration * dt
 
 
 def integrate_velocity_verlet(bodies, dt):
@@ -109,15 +145,16 @@ def resolve_collisions(bodies):
                 break
 
 
-def update_bodies(bodies, dt):
+def update_bodies(bodies, dt, integration_method=DEFAULT_INTEGRATION_METHOD):
     if dt == 0 or not bodies:
         return
 
+    integrator = get_integrator(integration_method)
     substep_count = max(1, math.ceil(abs(dt) / MAX_INTEGRATION_STEP_SECONDS))
     substep_count = min(substep_count, MAX_SUBSTEPS)
     substep_dt = dt / substep_count
 
     for _ in range(substep_count):
         resolve_collisions(bodies)
-        integrate_velocity_verlet(bodies, substep_dt)
+        integrator(bodies, substep_dt)
         resolve_collisions(bodies)
